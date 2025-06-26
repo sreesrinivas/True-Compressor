@@ -1,108 +1,135 @@
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('files');
-const fileListContainer = document.getElementById('fileList');
-const fileListBox = document.getElementById('fileListBox');
-const results = document.getElementById('results');
 const form = document.getElementById('uploadForm');
+const results = document.getElementById('results');
+const fileListBox = document.getElementById('fileListBox');
+const fileListWrapper = document.getElementById('fileList');
 
 let selectedFiles = [];
 
 dropZone.addEventListener('click', () => fileInput.click());
+
 dropZone.addEventListener('dragover', (e) => {
   e.preventDefault();
   dropZone.classList.add('dragover');
 });
+
 dropZone.addEventListener('dragleave', () => {
   dropZone.classList.remove('dragover');
 });
+
 dropZone.addEventListener('drop', (e) => {
   e.preventDefault();
   dropZone.classList.remove('dragover');
-  handleFiles(e.dataTransfer.files);
+  selectedFiles = [...e.dataTransfer.files];
+  displaySelectedFiles();
 });
+
 fileInput.addEventListener('change', () => {
-  handleFiles(fileInput.files);
+  selectedFiles = [...fileInput.files];
+  displaySelectedFiles();
 });
 
-function handleFiles(files) {
-  for (const file of files) selectedFiles.push(file);
-  renderFileList();
-}
-
-function renderFileList() {
-  if (selectedFiles.length === 0) {
-    fileListContainer.classList.add('hidden');
-    fileListBox.innerHTML = '';
-    return;
-  }
-
-  fileListContainer.classList.remove('hidden');
+function displaySelectedFiles() {
   fileListBox.innerHTML = '';
+  fileListWrapper.classList.remove('hidden');
+
   selectedFiles.forEach((file, index) => {
-    const div = document.createElement('div');
-    div.className = 'flex justify-between items-center';
-    div.innerHTML = `
-      <span>${index + 1}. ${file.name} (${(file.size / 1024).toFixed(2)} KB)</span>
+    const item = document.createElement('div');
+    item.className = 'file-item flex justify-between items-center bg-gray-100 rounded-xl px-4 py-3';
+
+    item.innerHTML = `
+      <div>
+        <strong>${index + 1}.</strong> ${file.name} (${(file.size / 1024).toFixed(2)} KB)
+      </div>
       <button class="btn-remove" onclick="removeFile(${index})">Remove</button>
     `;
-    fileListBox.appendChild(div);
+
+    fileListBox.appendChild(item);
   });
 }
 
-window.removeFile = function(index) {
+function removeFile(index) {
   selectedFiles.splice(index, 1);
-  renderFileList();
-};
+  fileInput.value = '';
+  displaySelectedFiles();
+}
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
+
   if (!selectedFiles.length) {
-    alert('Please select or drag files to upload.');
+    alert("Please select or drop at least one file.");
     return;
   }
 
   const formData = new FormData();
   selectedFiles.forEach(file => formData.append('files', file));
 
-  results.innerHTML = '<p class="text-blue-600 font-medium">Compressing files...</p>';
+  results.innerHTML = '';
+
   try {
     const res = await fetch('/upload', {
       method: 'POST',
       body: formData
     });
+
     const data = await res.json();
     results.innerHTML = '';
-    fileListBox.innerHTML = '';
-    fileListContainer.classList.add('hidden');
-    selectedFiles = [];
 
-    data.files.forEach((file, i) => {
+    data.files.forEach((file, index) => {
       const fileBox = document.createElement('div');
       fileBox.className = 'bg-white p-5 rounded-2xl shadow border animate-fade-in-up';
 
-      const renameId = `rename-${i}`;
-      const downloadId = `download-${i}`;
+      const blob = base64ToBlob(file.base64, file.mimeType);
+      const url = URL.createObjectURL(blob);
 
       fileBox.innerHTML = `
-        <p><strong>${i + 1}. Original:</strong> ${file.originalName} (${(file.originalSize / 1024).toFixed(2)} KB)</p>
-        <p><strong>Compressed:</strong> ${(file.compressedSize / 1024).toFixed(2)} KB</p>
-        <input type="text" id="${renameId}" value="${file.downloadName}" class="rename-input p-2 mt-3 border rounded w-72"/>
-        <a id="${downloadId}" href="${file.downloadUrl}" download="${file.downloadName}" class="btn-download">Download</a>
+        <p><strong>${index + 1}.</strong> <strong class="text-gray-700">Original:</strong> ${file.originalName} (${(file.originalSize / 1024).toFixed(2)} KB)</p>
+        <p><strong class="text-gray-700">Compressed:</strong> ${file.downloadName} (${(file.compressedSize / 1024).toFixed(2)} KB)</p>
+        <div class="flex items-center gap-2 mt-2">
+          <input type="text" value="${file.downloadName}" class="renameInput p-2 border rounded w-72" />
+          <span title="Edit filename" class="text-gray-500 text-xl">✏️</span>
+        </div>
+        <a class="btn-download block mt-3 px-4 py-2 rounded-lg" download>
+          Download
+        </a>
       `;
 
-      setTimeout(() => {
-        const renameInput = document.getElementById(renameId);
-        const downloadBtn = document.getElementById(downloadId);
-        renameInput.addEventListener('input', () => {
-          const newName = renameInput.value.trim();
-          if (newName) downloadBtn.setAttribute('download', newName);
-        });
-      }, 0);
+      const renameInput = fileBox.querySelector('.renameInput');
+      const downloadBtn = fileBox.querySelector('.btn-download');
+
+      renameInput.addEventListener('input', () => {
+        downloadBtn.setAttribute('download', renameInput.value.trim());
+      });
+
+      downloadBtn.href = url;
+      downloadBtn.setAttribute('download', renameInput.value.trim());
 
       results.appendChild(fileBox);
     });
+
+    selectedFiles = [];
+    fileInput.value = '';
+    displaySelectedFiles();
+    fileListWrapper.classList.add('hidden');
+
   } catch (err) {
-    console.error('Compression failed', err);
-    results.innerHTML = '<p class="text-red-600">Something went wrong.</p>';
+    console.error("Compression failed", err);
+    results.innerHTML = '<p class="text-red-600 font-medium">Something went wrong. Please try again.</p>';
   }
 });
+
+function base64ToBlob(base64, mime) {
+  const byteChars = atob(base64);
+  const byteArrays = [];
+  for (let i = 0; i < byteChars.length; i += 512) {
+    const slice = byteChars.slice(i, i + 512);
+    const byteNumbers = new Array(slice.length);
+    for (let j = 0; j < slice.length; j++) {
+      byteNumbers[j] = slice.charCodeAt(j);
+    }
+    byteArrays.push(new Uint8Array(byteNumbers));
+  }
+  return new Blob(byteArrays, { type: mime });
+}
