@@ -1,0 +1,15 @@
+# Node dependencies
+node_modules/
+
+# Local env files (if needed)
+.env
+
+# Uploaded and compressed files
+uploads/
+compressed/
+
+# Logs
+*.log
+
+# Railway build artifacts
+dist/
